@@ -95,7 +95,7 @@ def is_image_notion_forward(url):
 
 
 def image_notion_forward_filename(url):
-    return unquote(urlparse(url).path).split('/')[-1]
+    return '/' + unquote(urlparse(url).path).split('/')[-1]
 
 
 def massage_images(html):
@@ -118,7 +118,7 @@ def massage_images(html):
             if src.startswith('/'):
                 if is_image_notion_forward(src):
                     filename = image_notion_forward_filename(src)
-                    element.attrib['src'] = '/' + filename
+                    element.attrib['src'] = filename
                 src = "https://www.notion.so" + src
             else:
                 element.attrib["src"] = urlparse(src).path
@@ -142,7 +142,9 @@ def massage_ahrefs(html):
         if href.startswith('/'):
             if '?' in href:
                 href_rewritten = hashlib.md5(href.encode('utf8')).hexdigest()
-                element.attrib["href"] = '/' + href_rewritten
+                element.attrib["href"] = '/' + href_rewritten + '.html'
+            else:
+                element.attrib["href"] = href + '.html'
             url = 'https://www.notion.so' + href
             out.add(url)
         # TODO: else just check whether url is a dead link or not
@@ -169,6 +171,20 @@ async def is_html(http, url):
 
     content_type = response.headers["content-type"]
     return content_type.startswith("text/html")
+
+
+def massage_data(http, html):
+    out = set()
+    class_value = "notion-selectable notion-page-block notion-collection-item"
+    query = "//div[@class='{}']".format(class_value)
+    for element in html.xpath(query):
+        data = element.attrib["data-block-id"]
+        href = '/' + data.replace('-', '')
+        element.tag = "a"
+        element.attrib["href"] = href + ".html"
+        url = 'https://www.notion.so' + href
+        out.add(url)
+    return out
 
 
 async def crawl(browser, http, url):
@@ -199,21 +215,24 @@ async def crawl(browser, http, url):
     images = massage_images(html)  # sideeffect
     stylesheets = massage_stylesheets(html)
     hrefs = massage_ahrefs(html)
+    datas = massage_data(http, html)
     # prepare return
     content = html2string(html, pretty_print=True)
-    todo = images | stylesheets | hrefs
+    todo = images | stylesheets | hrefs | datas
     return content, True, todo
 
 
 def write(root, url, content, html):
-    if is_image_notion_forward(url):
-        path = image_notion_forward_filename(url)
-    else:
-        path = urlparse(url).path
-        if html:
-            if '?' in url:
-                path = '/' + hashlib.md5(path.encode('utf8')).hexdigest()
-            path += ".html"
+    url = urlparse(url)
+    url = url._replace(scheme='', netloc='', params='', fragment='')
+    path = url.geturl()
+
+    if is_image_notion_forward(path):
+        path = image_notion_forward_filename(path)
+    if html:
+        if '?' in path:
+            path = '/' + hashlib.md5(path.encode('utf8')).hexdigest()
+        path += ".html"
 
     path = Path(path[1:])
     target = root / path
