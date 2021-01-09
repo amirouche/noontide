@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "noontide"
+version = "0.1.0"
+description = "Crete static website from notion page"
+authors = ["Amirouche <amirouche@hyper.dev>"]
+license = "BSD-3"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+httpx = "^0.16.1"
+loguru = "^0.5.3"
+pyppeteer = "^0.2.5"
+cssutils = "^1.0.2"
+lxml = "^4.6.2"
+matplotlib = "^3.3.3"
+
+[tool.poetry.dev-dependencies]
+ipython = "^7.19.0"
+debug = "^0.3.2"
+psrecord = "^1.2"
+matplotlib = "^3.3.3"
+requests = "^2.25.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
