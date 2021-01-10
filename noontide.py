@@ -106,6 +106,8 @@ def massage_images(html):
     out = set()
     for element in html.xpath('//img'):
         src = element.attrib["src"]
+        if src.startswith('data:image'):
+            continue
         if 'notion-emoji' in element.attrib.get('class', ''):
             assert src.startswith('data:image')
             style = element.attrib["style"]
