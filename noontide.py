@@ -60,10 +60,6 @@ def clean(html):
         "apple-itunes-app",
     ]
 
-    for name in META_NAMES:
-        for element in html.xpath("//meta[name='{}']".format(name)):
-            element.getparent().remove(element)
-
     META_PROPERTIES = [
         "og:site_name",
         "og:type",
@@ -73,13 +69,21 @@ def clean(html):
         "og:image",
     ]
 
-    for property in META_PROPERTIES:
-        for element in html.xpath("//meta[property='{}']".format(property)):
-            element.getparent().remove(element)
+    for element in html.xpath("//meta"):
+        if 'name' in element.attrib:
+            name = element.attrib["name"]
+            if name in META_NAMES:
+                element.drop_tree()
+                continue
+        if 'property' in element.attrib:
+            property = element.attrib["property"]
+            if property in META_PROPERTIES:
+                element.drop_tree()
 
     XPATH_QUERIES = [
         "//script",
         "//div[@id='intercom-frame']",
+        "//iframe[@id='intercom-frame']",
         "//div[@class='intercom-lightweight-app']",
         "//div[@class='notion-overlay-container']",
         "//link[starts-with(@href,'/vendors~')]",
@@ -87,7 +91,7 @@ def clean(html):
 
     for query in XPATH_QUERIES:
         for element in html.xpath(query):
-            element.getparent().remove(element)
+            element.drop_tree()
 
 
 def is_image_notion_forward(url):
@@ -115,13 +119,14 @@ def massage_images(html):
                 # Do not need to cache. According to the terms of
                 # services of unsplash, hot linking is recommended.
                 continue
+            if src.startswith("https://notion-emojis."):
+                continue
+
             if src.startswith('/'):
                 if is_image_notion_forward(src):
                     filename = image_notion_forward_filename(src)
                     element.attrib['src'] = filename
                 src = "https://www.notion.so" + src
-            else:
-                element.attrib["src"] = urlparse(src).path
             out.add(src)
     return out
 
