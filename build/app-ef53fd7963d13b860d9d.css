@@ -601,7 +601,13 @@ th {
 .notion-focusable {
 	transition: box-shadow 300ms;
 }
-.notion-focusable:focus-within {
+
+.notion-focusable-within:focus-within {
+	box-shadow: rgba(46, 170, 220, 0.7) 0px 0px 0px 1px inset,
+		rgba(46, 170, 220, 0.4) 0px 0px 0px 2px !important;
+}
+
+.notion-focusable:focus-visible {
 	box-shadow: rgba(46, 170, 220, 0.7) 0px 0px 0px 1px inset,
 		rgba(46, 170, 220, 0.4) 0px 0px 0px 2px !important;
 }
