@@ -10,7 +10,9 @@ from urllib.parse import urlparse
 import pyppeteer
 from lxml.html import fromstring as string2html
 from lxml.html import tostring as html2string
+from lxml.html import Element as HTMLElement
 from loguru import logger as log
+from pyppeteer.errors import TimeoutError
 
 
 javascript_scroll = """
@@ -27,7 +29,12 @@ function() {
 
 
 async def read(browser, url):
-    response = await browser.goto(url, {'waitUntil': 'networkidle0'})
+    try:
+        response = await browser.goto(url, {'waitUntil': 'networkidle0', 'timeout': 90000}, )
+    except pyppeteer.errors.TimeoutError:
+        log.error("Timeout with: {}", url)
+        return None
+
     if not response.ok:
         log.error("Error with: {}", url)
         return None
@@ -158,6 +165,22 @@ def massage_ahrefs(html):
     return out
 
 
+def massage_urls(html):
+    for element in html.xpath("//span"):
+        if not element.text:
+            continue
+        http = element.text.startswith("http://")
+        https = element.text.startswith("https://")
+        if not (http or https):
+            continue
+        href = element.text
+        element.text = ''
+        ahref = HTMLElement('a')
+        ahref.text = href
+        ahref.attrib["href"] = href
+        element.append(ahref)
+
+
 async def is_html(http, url):
     try:
         response = await http.head(url, allow_redirects=True)
@@ -205,6 +228,7 @@ async def crawl(browser, http, url):
 
     if not html:
         response = await http.get(url)
+
         if response.status_code != 200:
             msg = "Error with: `{}`, code={}"
             log.error(msg, url, response.status_code)
@@ -223,6 +247,7 @@ async def crawl(browser, http, url):
     stylesheets = massage_stylesheets(html)
     hrefs = massage_ahrefs(html)
     datas = massage_data(http, html)
+    massage_urls(html)
     # prepare return
     content = html2string(html, pretty_print=True)
     todo = images | stylesheets | hrefs | datas

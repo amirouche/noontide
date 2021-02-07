@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+    <head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<link rel="stylesheet" href="/static/normalize.css">
+	<link rel="stylesheet" href="/static/highlight.css">
+	<link rel="stylesheet" href="/static/styles.css">
+	<title>hyper.dev - Lazy will continue</title>
+    </head>
+    <body>
+	<div id="background">
+	    <video autoplay loop poster="/static/video/poster.jpeg">
+		<!-- <source src="/static/video/space.ogv" type="video/ogg"/> -->
+		<!-- <source src="/static/video/space.mp4" type="video/mp4"/>
+		     <source src="/static/video/space.webm" type="video/webm"/> -->
+	    </video>
+	</div>
+	<div id="overlay">
+	</div>
+	<div id="root" class="post">
+	    <div><h1>2015/01/01 - Lazy will continue</h1>
+<p>Cette citation de Bob Marlisp est complètement à propos de
+continuation de séquences paresseuses en scheme.</p>
+<p>Dans cette article je vais presenter deux constructions:</p>
+<ol>
+<li><p>Les séquences paresseuses similaires aux iterables comme xrange ou
+aux générateurs simples.</p>
+</li>
+<li><p>Les coroutines, l'équivalent des generateurs améliorés.</p>
+</li>
+</ol>
+<h3>Sequence paraisseuse</h3>
+<p>Une sequence est dites paresseuses, si elle ne calcule pas tous les
+elements qui la compose à l'avance. L'interet est double, d'une part
+on economise la memoire, d'autre part le calcul se fait en plusieurs
+fois ce qui repartie la charge CPU dans le temps.</p>
+<p>Il existe bien les streams scheme pour faire cela, seulement je veux
+explorer ça.</p>
+<p>Il existe une autre approche emprunté a clojure nommé lazy-seq. Je
+n'est est pas besoin de la mise en cache des resultats (cela peux
+consommer beaucoup de memoire (Surtout quand on a pas besoin de cette
+memoization)).</p>
+<p>La méthode simple est inspiré de lazy-seq, le principe est d'utiliser
+une recurrence et une closure qui va retarder le calcul de la
+prochaine valeur: Il aussi est possible d'implementer les sequences
+paresseuses à l'aide de routines de controle du flow des programmes
+comme yield en Python et call/cc en Scheme que j'essaye d'aborder dans
+la seconde partie.</p>
+<div class="highlight"><pre><span></span><span class="p">(</span><span class="k">define </span><span class="nv">multiples-of-three</span>
+  <span class="p">(</span><span class="k">let </span><span class="nv">next</span> <span class="p">((</span><span class="nf">n</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="p">(</span><span class="k">lambda </span><span class="p">()</span>
+      <span class="p">(</span><span class="nb">values </span><span class="nv">n</span> <span class="p">(</span><span class="nf">next</span> <span class="p">(</span><span class="nb">+ </span><span class="nv">n</span> <span class="mi">3</span><span class="p">))))))</span>
+</pre></div>
+<p>Ligne par ligne cela donne:</p>
+<ol>
+<li><p>Definition d'une variable multiples-of-three qui va contenir la
+définition de la séquence.</p>
+</li>
+<li><p>La deuxieme ligne definie une lambda à l'aide de la forme let nommé
+qui encapsule le code de la séquence. Le let nommé est très utile
+pour définir des procédures recurrentes sans utiliser un autre
+define ou let plus lambda. Le let nommé est bien en dehors de la
+lambda definissant la séquence.</p>
+</li>
+<li><p>La lambda definissant le comportement de la séquence.</p>
+</li>
+<li><p>Elle retourne deux valeurs grace à values: la valeur courante n <em>et</em> à la lambda retourner par next, qui va permettre de continuer l'iteration.</p>
+</li>
+</ol>
+<p>La procédure multiples-of-three retourne toujours 3 et la lambda de la
+deuxième iteration. Après le premier appel, elle n'est plus jamais
+appellé. C'est la lambda qui définit la procédure qui est appellé mais
+avec un contexte différent.</p>
+<p>L'utilisation du let nommé complique les choses en un sens. Voici une
+version qui ne l'utilise pas:</p>
+<div class="highlight"><pre><span></span><span class="p">(</span><span class="k">define </span><span class="p">(</span><span class="nf">multiples-of-three-rec</span> <span class="nv">n</span><span class="p">)</span>
+  <span class="p">(</span><span class="nb">values </span><span class="nv">n</span> <span class="p">(</span><span class="k">lambda </span><span class="p">()</span> <span class="p">(</span><span class="nf">multiple-of-three-rec</span> <span class="p">(</span><span class="nb">+ </span><span class="nv">n</span> <span class="mi">3</span><span class="p">)))))</span>
+
+
+<span class="p">(</span><span class="k">define </span><span class="p">(</span><span class="nf">multiples-of-three</span><span class="p">)</span>
+  <span class="p">(</span><span class="nf">multiples-of-three-rec</span> <span class="mi">3</span><span class="p">))</span>
+</pre></div>
+<p>Voici comment cela s'utilise:</p>
+<div class="highlight"><pre><span></span><span class="p">(</span><span class="nf">use-modules</span> <span class="p">(</span><span class="nf">ice-9</span> <span class="nv">receive</span><span class="p">))</span>
+
+
+<span class="p">(</span><span class="k">define </span><span class="nv">multiples-of-three</span>
+  <span class="p">(</span><span class="k">let </span><span class="nv">next</span> <span class="p">((</span><span class="nf">n</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="p">(</span><span class="k">lambda </span><span class="p">()</span>
+      <span class="p">(</span><span class="nb">values </span><span class="nv">n</span> <span class="p">(</span><span class="nf">next</span> <span class="p">(</span><span class="nb">+ </span><span class="nv">n</span> <span class="mi">3</span><span class="p">))))))</span>
+
+
+<span class="p">(</span><span class="nf">receive</span> <span class="p">(</span><span class="nf">value</span> <span class="nv">next</span><span class="p">)</span> <span class="p">(</span><span class="nf">multiples-of-three</span><span class="p">)</span>
+  <span class="p">(</span><span class="nf">format</span> <span class="no">#t</span> <span class="s">&quot;~a\n&quot;</span> <span class="nv">value</span><span class="p">)</span>  <span class="c1">;; =&gt; 3</span>
+  <span class="p">(</span><span class="nf">receive</span> <span class="p">(</span><span class="nf">value</span> <span class="nv">next</span><span class="p">)</span> <span class="p">(</span><span class="nf">next</span><span class="p">)</span>
+    <span class="p">(</span><span class="nf">format</span> <span class="no">#t</span> <span class="s">&quot;~a\n&quot;</span> <span class="nv">value</span><span class="p">)</span>  <span class="c1">;; =&gt; 6</span>
+    <span class="p">(</span><span class="nf">receive</span> <span class="p">(</span><span class="nf">value</span> <span class="nv">next</span><span class="p">)</span> <span class="p">(</span><span class="nf">next</span><span class="p">)</span>
+      <span class="p">(</span><span class="nf">format</span> <span class="no">#t</span> <span class="s">&quot;~a\n&quot;</span> <span class="nv">value</span><span class="p">))))</span>  <span class="c1">;; =&gt; 9</span>
+</pre></div>
+<p>On peux utiliser le même principe en Javascript ou Python. Dans le
+code suivant je présente une implementation de multiples-of-three en
+Javascript:</p>
+<div class="highlight"><pre><span></span><span class="kd">function</span> <span class="nx">multiplesOfThree</span><span class="p">()</span> <span class="p">{</span>
+
+    <span class="kd">function</span> <span class="nx">next</span><span class="p">(</span><span class="nx">n</span><span class="p">)</span> <span class="p">{</span>
+    <span class="c1">// wrap next call to delay its execution.</span>
+    <span class="kd">function</span> <span class="nx">wrapper</span> <span class="p">()</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">next</span><span class="p">(</span><span class="nx">n</span> <span class="o">+</span> <span class="mi">3</span><span class="p">);</span>
+    <span class="p">};</span>
+    <span class="k">return</span> <span class="p">{</span><span class="nx">value</span><span class="o">:</span> <span class="nx">n</span><span class="p">,</span> <span class="nx">next</span><span class="o">:</span><span class="nx">wrapper</span><span class="p">};</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="nx">next</span><span class="p">(</span><span class="mi">3</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="nx">iter</span> <span class="o">=</span> <span class="nx">multiplesOfThree</span><span class="p">()</span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">iter</span><span class="p">)</span>
+<span class="nx">iter</span> <span class="o">=</span> <span class="nx">iter</span><span class="p">.</span><span class="nx">next</span><span class="p">()</span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">iter</span><span class="p">)</span>
+<span class="nx">iter</span> <span class="o">=</span> <span class="nx">iter</span><span class="p">.</span><span class="nx">next</span><span class="p">()</span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">iter</span><span class="p">)</span>
+</pre></div>
+<p>Et en Python:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">multiple_of_three</span><span class="p">():</span>
+
+    <span class="k">def</span> <span class="nf">next</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">n</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="nb">next</span><span class="p">(</span><span class="n">n</span><span class="o">+</span><span class="mi">3</span><span class="p">)]</span>
+
+    <span class="k">return</span> <span class="nb">next</span><span class="p">(</span><span class="mi">3</span><span class="p">);</span>
+
+<span class="n">value</span><span class="p">,</span> <span class="nb">next</span> <span class="o">=</span> <span class="n">multiple_of_three</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<span class="n">value</span><span class="p">,</span> <span class="nb">next</span> <span class="o">=</span> <span class="nb">next</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<span class="n">value</span><span class="p">,</span> <span class="nb">next</span> <span class="o">=</span> <span class="nb">next</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+</pre></div>
+<p>Remarque: les deux langages ont déjà un moyen beaucoup plus simple de
+faire ce genre de chose à l'aide de leur yield respectif, exemple en
+Python:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">multiple_of_three</span><span class="p">():</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="mi">3</span>
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">n</span>
+        <span class="n">n</span> <span class="o">+=</span> <span class="mi">3</span>
+
+
+<span class="n">generator</span> <span class="o">=</span> <span class="n">multiple_of_three</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">generator</span><span class="o">.</span><span class="n">next</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">generator</span><span class="o">.</span><span class="n">next</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">generator</span><span class="o">.</span><span class="n">next</span><span class="p">())</span>
+</pre></div>
+<p>En javascript, avec une version recente de node et le flag --harmony
+cela donne:</p>
+<div class="highlight"><pre><span></span><span class="kd">function</span><span class="o">*</span> <span class="nx">multiplesOfThree</span><span class="p">(){</span>
+    <span class="kd">var</span> <span class="nx">n</span> <span class="o">=</span> <span class="mi">3</span><span class="p">;</span>
+    <span class="k">while</span> <span class="p">(</span><span class="kc">true</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">yield</span> <span class="nx">n</span><span class="p">;</span>
+    <span class="nx">n</span> <span class="o">=</span> <span class="nx">n</span> <span class="o">+</span> <span class="mi">3</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+
+<span class="nx">iterator</span> <span class="o">=</span> <span class="nx">multiplesOfThree</span><span class="p">()</span>
+
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">iterator</span><span class="p">.</span><span class="nx">next</span><span class="p">())</span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">iterator</span><span class="p">.</span><span class="nx">next</span><span class="p">())</span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">iterator</span><span class="p">.</span><span class="nx">next</span><span class="p">())</span>
+</pre></div>
+<p>Cette méthode resoud en scheme le problème de la construction de la
+liste paresseuse de façon plus élégante. Ceci dit, il est encore
+necessaire de construire des procedures map, fold, for-each, filter
+spécifiques.</p>
+<h3>Continuations</h3>
+<p>Au cours de mes lectures il m'a semblé que call-with-continuation
+(call/cc pour les intimes) était la procedure (?) qui cristalise
+l'identité minimaliste de scheme dans le sens où il s'agit d'une
+construction très puissante et simple . Elle n'exsite pas ailleurs, on
+lui préfére des constructions spécialisés comme yield ou goto. En
+effet, call/cc peux emuler la plus part si ce n'est pas toutes les
+constructions de controles. Le support de call/cc se fait au prix de
+compilateurs/interpreteur plus compliqués.</p>
+<p>Sans autres formes de procès voilà une procédure permettant
+d'implementer des coroutines:</p>
+<div class="highlight"><pre><span></span><span class="p">(</span><span class="k">define </span><span class="p">(</span><span class="nf">coroutine</span> <span class="nv">routine</span><span class="p">)</span>
+  <span class="p">(</span><span class="k">let </span><span class="p">((</span><span class="nf">current</span> <span class="nv">routine</span><span class="p">)</span>
+    <span class="p">(</span><span class="nf">status</span> <span class="ss">&#39;new</span><span class="p">))</span>
+    <span class="p">(</span><span class="nf">lambda*</span> <span class="p">(</span><span class="o">#</span><span class="nv">:optional</span> <span class="nv">value</span><span class="p">)</span>
+      <span class="p">(</span><span class="k">let </span><span class="p">((</span><span class="nf">continuation-and-value</span>
+         <span class="p">(</span><span class="nb">call/cc </span><span class="p">(</span><span class="k">lambda </span><span class="p">(</span><span class="nf">return</span><span class="p">)</span>
+            <span class="p">(</span><span class="k">let </span><span class="p">((</span><span class="nf">returner</span>
+                   <span class="p">(</span><span class="k">lambda </span><span class="p">(</span><span class="nf">value</span><span class="p">)</span>
+                 <span class="p">(</span><span class="nb">call/cc </span><span class="p">(</span><span class="k">lambda </span><span class="p">(</span><span class="nf">next</span><span class="p">)</span>
+                        <span class="p">(</span><span class="nf">return</span> <span class="p">(</span><span class="nb">cons </span><span class="nv">next</span> <span class="nv">value</span><span class="p">)))))))</span>
+              <span class="p">(</span><span class="k">if </span><span class="p">(</span><span class="nb">equal? </span><span class="nv">status</span> <span class="ss">&#39;new</span><span class="p">)</span>
+                  <span class="p">(</span><span class="nf">begin</span>
+                <span class="p">(</span><span class="k">set! </span><span class="nv">status</span> <span class="ss">&#39;running</span><span class="p">)</span>
+                <span class="p">(</span><span class="nf">current</span> <span class="nv">returner</span><span class="p">))</span>
+                  <span class="p">(</span><span class="nf">current</span> <span class="p">(</span><span class="nb">cons </span><span class="nv">value</span> <span class="nv">returner</span><span class="p">)))</span>
+              <span class="p">(</span><span class="k">set! </span><span class="nv">status</span> <span class="ss">&#39;dead</span><span class="p">))))))</span>
+    <span class="p">(</span><span class="k">if </span><span class="p">(</span><span class="nb">pair? </span><span class="nv">continuation-and-value</span><span class="p">)</span>
+        <span class="p">(</span><span class="k">begin </span><span class="p">(</span><span class="k">set! </span><span class="nv">current</span> <span class="p">(</span><span class="nb">car </span><span class="nv">continuation-and-value</span><span class="p">))</span>
+           <span class="p">(</span><span class="nb">cdr </span><span class="nv">continuation-and-value</span><span class="p">))</span>
+        <span class="nv">continuation-and-value</span><span class="p">)))))</span>
+</pre></div>
+<p>Dans les grandes lignes, un appel call/cc va créer un "label"
+dynamiquement referencé par la variable passé à la callback de
+call/cc. La callback est appellé immediatement. Si l'envie lui prend
+de "quitter/revenir" mais plus precisement the continuer sa vie avec
+la continuation elle va l'appeller (avec un argument si sa lui
+chante). Ce comportement de base est illustré dans le code suivant:</p>
+<div class="highlight"><pre><span></span><span class="p">(</span><span class="k">define </span><span class="nv">why</span> <span class="p">(</span><span class="nb">call/cc </span><span class="p">(</span><span class="k">lambda </span><span class="p">(</span><span class="nf">return</span><span class="p">)</span>
+               <span class="p">(</span><span class="nf">format</span> <span class="no">#t</span> <span class="s">&quot;love me or leave me!&quot;</span><span class="p">)</span>
+               <span class="p">(</span><span class="nf">return</span> <span class="s">&quot;I leave!&quot;</span><span class="p">)</span>
+               <span class="c1">;; the program never reach this part</span>
+               <span class="p">(</span><span class="nf">format</span> <span class="no">#t</span> <span class="s">&quot;it probably left :(&quot;</span><span class="p">))))</span>
+<span class="p">(</span><span class="nf">format</span> <span class="no">#t</span> <span class="s">&quot;return actually populates WHY variable\n&quot;</span><span class="p">)</span>
+<span class="p">(</span><span class="nf">format</span> <span class="no">#t</span> <span class="s">&quot;WHY: ~a\n&quot;</span> <span class="nv">why</span><span class="p">)</span>
+</pre></div>
+<p>Avec cette exemple, on dirait que c'est rien de plus qu'un return. En
+fait c'est bien plus que ça. La continuation est une variable et pas
+un keyword, elle peux etre gardé en mémoire, passé à une autre
+procedure. Elle est dynamique contrairement à goto, qui attend un
+label qui peut-être resolue par le compilateur.</p>
+<p>Mon implementation est loin d'être aussi facile à utiliser que le
+yield Python. En effet chaque yield crée une nouvelle continuation et
+donc un nouveau yield cf. second-yield:</p>
+<div class="highlight"><pre><span></span><span class="p">(</span><span class="k">define </span><span class="nv">example-coroutine</span>
+  <span class="p">(</span><span class="nf">coroutine</span> <span class="p">(</span><span class="k">lambda </span><span class="p">(</span><span class="nf">yield</span><span class="p">)</span>
+           <span class="p">(</span><span class="nb">display </span><span class="s">&quot;coroutine says: HELLO!&quot;</span><span class="p">)</span>
+           <span class="p">(</span><span class="nf">newline</span><span class="p">)</span>
+           <span class="p">(</span><span class="k">let </span><span class="p">((</span><span class="nf">second-yield</span> <span class="p">(</span><span class="nb">cdr </span><span class="p">(</span><span class="nf">yield</span> <span class="mi">1</span><span class="p">))))</span>
+         <span class="p">(</span><span class="nb">display </span><span class="s">&quot;coroutine says: WORLD!&quot;</span><span class="p">)</span>
+         <span class="p">(</span><span class="nf">second-yield</span> <span class="mi">2</span><span class="p">)</span>
+         <span class="p">(</span><span class="nf">newline</span><span class="p">)</span>
+         <span class="p">(</span><span class="nb">display </span><span class="s">&quot;coroutine says: SORRY, I&#39;M OUT&quot;</span><span class="p">)))))</span>
+
+
+<span class="p">(</span><span class="nb">display </span><span class="p">(</span><span class="nf">example-coroutine</span><span class="p">))</span>
+<span class="p">(</span><span class="nf">newline</span><span class="p">)</span>
+<span class="p">(</span><span class="nb">display </span><span class="p">(</span><span class="nf">example-coroutine</span><span class="p">))</span>
+<span class="p">(</span><span class="nf">newline</span><span class="p">)</span>
+</pre></div>
+<p>Clairement cela necessite un peu plus de travail. J'ai tourné en rond
+un certain temps pour résoudre le problème de la creation des yield
+pour avoir une syntax moins imbriqué et plus lineaire.</p>
+<p>Les <em>delimited continuations</em> et la procédure <em>amb</em> sont deux formes de
+controles qui peuvent être implementé à l'aide de <em>call/cc</em>.</p>
+</div>
+	</div>
+        <div id="footer">
+            <p>
+                As always if you like this article, want to share
+                feedback, or tell me what I got it wrong. Please <a href="mailto:amirouche@hyper.dev">get
+                in touch</a>.
+            </p>
+            <p>You might want to subscribe to the blog <a href="http://localhost:8000/feed.xml">feed</a>!</p>
+            <p>Go back to the <a href="https://hyper.dev">homepage</a></p>
+            <p>Amirouche ~ arew</p>
+        </div>
+    </body>
+</html>

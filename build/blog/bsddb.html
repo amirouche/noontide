@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+    <head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<link rel="stylesheet" href="/static/normalize.css">
+	<link rel="stylesheet" href="/static/highlight.css">
+	<link rel="stylesheet" href="/static/styles.css">
+	<title>hyper.dev - Debuter avec la base de donnée clef-valeur bsddb</title>
+    </head>
+    <body>
+	<div id="background">
+	    <video autoplay loop poster="/static/video/poster.jpeg">
+		<!-- <source src="/static/video/space.ogv" type="video/ogg"/> -->
+		<!-- <source src="/static/video/space.mp4" type="video/mp4"/>
+		     <source src="/static/video/space.webm" type="video/webm"/> -->
+	    </video>
+	</div>
+	<div id="overlay">
+	</div>
+	<div id="root" class="post">
+	    <div><h1>2015/01/01 - Debuter avec la base de donnée clef-valeur bsddb</h1>
+<p><strong>Remarque</strong> je préfère aujourd'hui <a href="http://wiredtiger.com">wiredtiger</a>.</p>
+<p>Berkeley database est la base de donnée la plus utilisé dans le monde
+d'après ses créateurs. Pourquoi? Car elle est très flexible. Ici je
+vais pas m'étaler sur les différentes fonctionnalités. Je défriche la
+création d'une base de donnée et la création d'index.</p>
+<h3>Basics</h3>
+<p>Le backend btree est très bien pour créer un index ordonnée.</p>
+<div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+
+<span class="kn">from</span> <span class="nn">bsddb3.db</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="kn">from</span> <span class="nn">json</span> <span class="kn">import</span> <span class="n">dumps</span>
+<span class="kn">from</span> <span class="nn">json</span> <span class="kn">import</span> <span class="n">loads</span>
+
+<span class="c1"># reset the database if it already exists</span>
+<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">):</span>
+    <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">)</span>
+<span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">)</span>
+
+<span class="c1"># initialize the database</span>
+<span class="n">env</span> <span class="o">=</span> <span class="n">DBEnv</span><span class="p">()</span>
+<span class="n">env</span><span class="o">.</span><span class="n">open</span><span class="p">(</span>
+    <span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">,</span>
+    <span class="n">DB_CREATE</span> <span class="o">|</span> <span class="n">DB_INIT_MPOOL</span><span class="p">,</span>
+    <span class="mi">0</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">compare</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="c1"># at initialisation time a &amp; b are empty strings</span>
+    <span class="c1"># those can&#39;t be deserialized by json</span>
+    <span class="k">if</span> <span class="n">a</span> <span class="ow">and</span> <span class="n">b</span><span class="p">:</span>
+        <span class="c1"># a and b are string keys</span>
+        <span class="c1"># In this case comparing them as is, is non-sens</span>
+        <span class="c1"># they must be deserialized</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">))</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">b</span><span class="p">:</span>
+            <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="k">elif</span> <span class="n">a</span> <span class="o">==</span> <span class="n">b</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+
+<span class="n">index</span> <span class="o">=</span> <span class="n">DB</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+<span class="c1"># set the function to compare keys</span>
+<span class="n">index</span><span class="o">.</span><span class="n">set_bt_compare</span><span class="p">(</span><span class="n">compare</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">&#39;index&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">DB_BTREE</span><span class="p">,</span> <span class="n">DB_CREATE</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="c1"># populate the database</span>
+
+<span class="c1"># keep track of all the values that are in the database</span>
+<span class="c1"># in order of insertion</span>
+<span class="n">values</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+
+<span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># keep track of insertion order</span>
+<span class="k">def</span> <span class="nf">populate</span><span class="p">(</span><span class="o">*</span><span class="n">key</span><span class="p">):</span>
+    <span class="k">global</span> <span class="n">i</span>
+    <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">key</span><span class="p">))</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">dumps</span><span class="p">(</span><span class="n">key</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">dumps</span><span class="p">(</span><span class="n">i</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="n">index</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+
+<span class="n">populate</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">populate</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">populate</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">populate</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">populate</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+<span class="c1"># fetch all index values in order</span>
+<span class="nb">all</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+<span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">first</span><span class="p">()</span>
+<span class="k">while</span> <span class="nb">next</span><span class="p">:</span>
+    <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="nb">next</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">))</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">))</span>
+    <span class="nb">all</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+    <span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;initial keys</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">,</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">values</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;cursor keys</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">,</span> <span class="nb">all</span><span class="p">)</span>
+<span class="k">assert</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">==</span> <span class="nb">all</span>
+</pre></div>
+<p>Un autre exemple plus parlant qui fait intervenir deux bases de
+données:</p>
+<div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+
+<span class="kn">from</span> <span class="nn">bsddb3.db</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="kn">from</span> <span class="nn">json</span> <span class="kn">import</span> <span class="n">dumps</span> <span class="k">as</span> <span class="n">json_dumps</span>
+<span class="kn">from</span> <span class="nn">json</span> <span class="kn">import</span> <span class="n">loads</span> <span class="k">as</span> <span class="n">json_loads</span>
+
+
+<span class="k">def</span> <span class="nf">dumps</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">json_dumps</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">loads</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">json_loads</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">))</span>
+
+
+<span class="c1"># reset the database if it already exists</span>
+<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">):</span>
+    <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">)</span>
+<span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">)</span>
+
+<span class="c1"># initialize the database</span>
+<span class="n">env</span> <span class="o">=</span> <span class="n">DBEnv</span><span class="p">()</span>
+<span class="n">env</span><span class="o">.</span><span class="n">open</span><span class="p">(</span>
+    <span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">,</span>
+    <span class="n">DB_CREATE</span> <span class="o">|</span> <span class="n">DB_INIT_MPOOL</span><span class="p">,</span>
+    <span class="mi">0</span>
+<span class="p">)</span>
+
+
+<span class="c1"># create articles database</span>
+<span class="n">articles</span> <span class="o">=</span> <span class="n">DB</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+<span class="c1"># DB_HASH is recommanded for database</span>
+<span class="c1"># that can not fit fully in memory</span>
+<span class="n">articles</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">&#39;articles&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">DB_HASH</span><span class="p">,</span> <span class="n">DB_CREATE</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="c1"># create index database</span>
+<span class="k">def</span> <span class="nf">compare</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">a</span> <span class="ow">and</span> <span class="n">b</span><span class="p">:</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">b</span><span class="p">:</span>
+            <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="k">elif</span> <span class="n">a</span> <span class="o">==</span> <span class="n">b</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+
+<span class="k">def</span> <span class="nf">duplicate</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="c1"># this compares ascii bytes values of the index</span>
+    <span class="c1"># this is supposed to be the default comparaison</span>
+    <span class="c1"># but the bsddb fails to do so</span>
+    <span class="k">if</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">b</span><span class="p">:</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="k">elif</span> <span class="n">a</span> <span class="o">==</span> <span class="n">b</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+<span class="n">index</span> <span class="o">=</span> <span class="n">DB</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+
+<span class="n">index</span><span class="o">.</span><span class="n">set_bt_compare</span><span class="p">(</span><span class="n">compare</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">set_dup_compare</span><span class="p">(</span><span class="n">duplicate</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">&#39;index&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">DB_BTREE</span><span class="p">,</span> <span class="n">DB_CREATE</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="c1"># populate the database</span>
+<span class="k">def</span> <span class="nf">populate</span><span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">):</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">title</span><span class="o">=</span><span class="n">title</span><span class="p">,</span>
+        <span class="n">body</span><span class="o">=</span><span class="n">body</span><span class="p">,</span>
+        <span class="n">published_at</span><span class="o">=</span><span class="n">published_at</span><span class="p">,</span>
+        <span class="n">modified_at</span><span class="o">=</span><span class="n">modified_at</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">dumps</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="c1"># save article in articles database</span>
+    <span class="c1"># here title is used as a key but it can</span>
+    <span class="c1"># be anything memorable.</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">title</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="n">articles</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+
+    <span class="c1"># index the article</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">)</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">dumps</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">title</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="n">index</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+
+
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;a k/v store is a dictionary a set of key/value associations&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Getting started with kv store (1/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;the gist of the practice of using kv stores is to build&#39;</span>
+<span class="n">body</span> <span class="o">+=</span> <span class="s1">&#39; a schema on top of it using string patterns&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Getting started with kv store (2/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+<span class="c1"># for some reason the following article is put in the database</span>
+<span class="c1"># before the followings even if it is published later</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;Wiretiger is kind of the successor of bsddb&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Behold wiredtiger database (1/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;bsddb has still room to be put to good use.&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Almighty bsddb (1/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;bsddb is stable!&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Almighty bsddb (2/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+<span class="c1"># the following articles will have the same index key</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;Working with wiredtiger is similar. Take advantage of its&#39;</span>
+<span class="n">body</span> <span class="o">+=</span> <span class="s1">&#39;own features&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Behold wiredtiger database (2/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;Good question&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Is it worth the trouble?&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;* All articles in chronological order&#39;</span><span class="p">)</span>
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+<span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">first</span><span class="p">()</span>
+<span class="k">while</span> <span class="nb">next</span><span class="p">:</span>
+    <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="nb">next</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+    <span class="c1"># the value is the title, this can also be used</span>
+    <span class="c1"># to fetch the associated article in articles database</span>
+    <span class="n">title</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span> <span class="o">=</span> <span class="n">key</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;**&#39;</span><span class="p">,</span> <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">,</span> <span class="n">title</span><span class="p">)</span>
+    <span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">* All articles published between 4 and 6 inclusive in chronological order&#39;</span><span class="p">)</span>
+
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+<span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">set_range</span><span class="p">(</span><span class="n">dumps</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">0</span><span class="p">)))</span>
+<span class="k">while</span> <span class="nb">next</span><span class="p">:</span>
+    <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="nb">next</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="mi">4</span> <span class="o">&lt;=</span> <span class="n">key</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="mi">6</span><span class="p">:</span>
+        <span class="n">title</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+        <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span> <span class="o">=</span> <span class="n">key</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;**&#39;</span><span class="p">,</span> <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">,</span> <span class="n">title</span><span class="p">)</span>
+        <span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">break</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">* Last three articles in anti-chronological order with body&#39;</span><span class="p">)</span>
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+<span class="n">previous</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>  <span class="c1"># browse the index in reverse order</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+    <span class="c1"># we don&#39;t need to deserialize the key</span>
+    <span class="n">_</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">previous</span>
+    <span class="c1"># the value is the title, it is used to fetch the full article</span>
+    <span class="c1"># datastructure. This is a join.</span>
+    <span class="n">article</span> <span class="o">=</span> <span class="n">articles</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="n">article</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">article</span><span class="p">)</span>
+    <span class="n">title</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="n">body</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;body&#39;</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;**&#39;</span><span class="p">,</span> <span class="s1">&#39;</span><span class="si">%s</span><span class="s1">: </span><span class="si">%s</span><span class="s1">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">body</span><span class="p">))</span>
+    <span class="n">previous</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">prev</span><span class="p">()</span>
+</pre></div>
+<p>Comme c'est un peu très souvent qu'il faut construire des indexes
+bsddb fournis des routines pour aider:</p>
+<div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+
+<span class="kn">from</span> <span class="nn">bsddb3.db</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="kn">from</span> <span class="nn">json</span> <span class="kn">import</span> <span class="n">dumps</span> <span class="k">as</span> <span class="n">json_dumps</span>
+<span class="kn">from</span> <span class="nn">json</span> <span class="kn">import</span> <span class="n">loads</span> <span class="k">as</span> <span class="n">json_loads</span>
+
+
+<span class="k">def</span> <span class="nf">dumps</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">json_dumps</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">loads</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">json_loads</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">))</span>
+
+
+<span class="c1"># reset the database if it already exists</span>
+<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">):</span>
+    <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">)</span>
+<span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">)</span>
+
+<span class="c1"># initialize the database</span>
+<span class="n">env</span> <span class="o">=</span> <span class="n">DBEnv</span><span class="p">()</span>
+<span class="n">env</span><span class="o">.</span><span class="n">open</span><span class="p">(</span>
+    <span class="s1">&#39;/tmp/bsddb&#39;</span><span class="p">,</span>
+    <span class="n">DB_CREATE</span> <span class="o">|</span> <span class="n">DB_INIT_MPOOL</span><span class="p">,</span>
+    <span class="mi">0</span>
+<span class="p">)</span>
+
+
+<span class="c1"># create articles database</span>
+<span class="n">articles</span> <span class="o">=</span> <span class="n">DB</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+<span class="c1"># DB_HASH is recommanded for database</span>
+<span class="c1"># that can not fit fully in memory</span>
+<span class="n">articles</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">&#39;articles&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">DB_HASH</span><span class="p">,</span> <span class="n">DB_CREATE</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="c1"># create index database</span>
+<span class="k">def</span> <span class="nf">compare</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">a</span> <span class="ow">and</span> <span class="n">b</span><span class="p">:</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">b</span><span class="p">:</span>
+            <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="k">elif</span> <span class="n">a</span> <span class="o">==</span> <span class="n">b</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+
+<span class="k">def</span> <span class="nf">duplicate</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="c1"># this compares ascii bytes values of the index</span>
+    <span class="k">if</span> <span class="n">a</span> <span class="ow">and</span> <span class="n">b</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">b</span><span class="p">:</span>
+            <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="k">elif</span> <span class="n">a</span> <span class="o">==</span> <span class="n">b</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+<span class="n">index</span> <span class="o">=</span> <span class="n">DB</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+
+<span class="n">index</span><span class="o">.</span><span class="n">set_bt_compare</span><span class="p">(</span><span class="n">compare</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">set_dup_compare</span><span class="p">(</span><span class="n">duplicate</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">&#39;index&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">DB_BTREE</span><span class="p">,</span> <span class="n">DB_CREATE</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="c1"># XXX: this is the main change to the code</span>
+<span class="k">def</span> <span class="nf">callback</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+    <span class="c1"># this will keep the index automatically up-to-date</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="n">published_at</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="s1">&#39;published_at&#39;</span><span class="p">]</span>
+    <span class="n">modified_at</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="s1">&#39;modified_at&#39;</span><span class="p">]</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">)</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">dumps</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">key</span>
+<span class="n">articles</span><span class="o">.</span><span class="n">associate</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">populate</span><span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">):</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">title</span><span class="o">=</span><span class="n">title</span><span class="p">,</span>
+        <span class="n">body</span><span class="o">=</span><span class="n">body</span><span class="p">,</span>
+        <span class="n">published_at</span><span class="o">=</span><span class="n">published_at</span><span class="p">,</span>
+        <span class="n">modified_at</span><span class="o">=</span><span class="n">modified_at</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">dumps</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="c1"># save article in articles database</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">title</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="n">articles</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="c1"># no need to update the index database</span>
+    <span class="c1"># it&#39;s done by bsddb</span>
+
+
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;a k/v store is a dictionary a set of key/value associations&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Getting started with kv store (1/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;the gist of the practice of using kv stores is to build&#39;</span>
+<span class="n">body</span> <span class="o">+=</span> <span class="s1">&#39; a schema on top of it using string patterns&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Getting started with kv store (2/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;Wiretiger is kind of the successor of bsddb&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Behold wiredtiger database (1/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;bsddb has still room to be put to good use.&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Almighty bsddb (1/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;bsddb is stable!&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Almighty bsddb (2/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;Working with wiredtiger is similar. Take advantage of its&#39;</span>
+<span class="n">body</span> <span class="o">+=</span> <span class="s1">&#39;own features&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Behold wiredtiger database (2/2)&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;Good question&#39;</span>
+<span class="n">populate</span><span class="p">(</span><span class="s1">&#39;Is it worth the trouble?&#39;</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="c1"># XXX: index cursor return the primary database value,</span>
+<span class="c1"># a json serialized article dictionary, no need</span>
+<span class="c1"># to do the join manually</span>
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;* All articles in chronological order&#39;</span><span class="p">)</span>
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+<span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">first</span><span class="p">()</span>
+<span class="k">while</span> <span class="nb">next</span><span class="p">:</span>
+    <span class="c1"># XXX: just like before key is the **index key**</span>
+    <span class="c1"># for that article</span>
+    <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="nb">next</span>
+    <span class="c1"># XXX: but the value is the serialized article value of</span>
+    <span class="c1"># instead of the primary key of the article</span>
+    <span class="c1"># which means that the join was done by bsddb</span>
+    <span class="n">article</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="n">title</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;title&#39;</span><span class="p">]</span>
+    <span class="n">published_at</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;published_at&#39;</span><span class="p">]</span>
+    <span class="n">modified_at</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;modified_at&#39;</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;**&#39;</span><span class="p">,</span> <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">,</span> <span class="n">title</span><span class="p">)</span>
+    <span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">* All articles published between 4 and 6 inclusive in chronological order&#39;</span><span class="p">)</span>
+
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+<span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">set_range</span><span class="p">(</span><span class="n">dumps</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">0</span><span class="p">)))</span>
+<span class="k">while</span> <span class="nb">next</span><span class="p">:</span>
+    <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="nb">next</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="mi">4</span> <span class="o">&lt;=</span> <span class="n">key</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="mi">6</span><span class="p">:</span>
+        <span class="n">article</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="n">title</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;title&#39;</span><span class="p">]</span>
+        <span class="n">published_at</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;published_at&#39;</span><span class="p">]</span>
+        <span class="n">modified_at</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;modified_at&#39;</span><span class="p">]</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;**&#39;</span><span class="p">,</span> <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">,</span> <span class="n">title</span><span class="p">)</span>
+        <span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">break</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">* Last three articles in anti-chronological order with body&#39;</span><span class="p">)</span>
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+<span class="n">previous</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>  <span class="c1"># browse the index in reverse order</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+    <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">previous</span>
+    <span class="n">article</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="n">title</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="n">body</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;body&#39;</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;**&#39;</span><span class="p">,</span> <span class="s1">&#39;</span><span class="si">%s</span><span class="s1">: </span><span class="si">%s</span><span class="s1">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">body</span><span class="p">))</span>
+    <span class="n">previous</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">prev</span><span class="p">()</span>
+
+
+<span class="c1"># XXX: The get method of the secondary database ie. the index</span>
+<span class="c1"># also returns the primary data instead of the primary key</span>
+<span class="c1"># of the article</span>
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">* Retrieve the article published the 6/10&#39;</span><span class="p">)</span>
+<span class="c1"># XXX: Using index.pget will return (primary_key, primary_data)</span>
+<span class="c1"># here it&#39;s not required to retrieve the primary key</span>
+<span class="c1"># since it&#39;s also available as part of primary_data</span>
+<span class="n">value</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">dumps</span><span class="p">((</span><span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">)))</span>
+<span class="n">article</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<span class="n">title</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;title&#39;</span><span class="p">]</span>
+<span class="n">published_at</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;published_at&#39;</span><span class="p">]</span>
+<span class="n">modified_at</span> <span class="o">=</span> <span class="n">article</span><span class="p">[</span><span class="s1">&#39;modified_at&#39;</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;**&#39;</span><span class="p">,</span> <span class="n">published_at</span><span class="p">,</span> <span class="n">modified_at</span><span class="p">,</span> <span class="n">title</span><span class="p">)</span>
+<span class="n">value</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">pget</span><span class="p">(</span><span class="n">dumps</span><span class="p">((</span><span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">)))</span>
+
+<span class="c1"># XXX: Let&#39;s delete that article</span>
+<span class="n">key</span> <span class="o">=</span> <span class="n">title</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+<span class="n">articles</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+
+<span class="c1"># XXX: Try to retrieve it from the index just like before</span>
+<span class="n">value</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">dumps</span><span class="p">((</span><span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">)))</span>
+<span class="k">assert</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span>  <span class="c1"># it&#39;s not anymore in the secondary index</span>
+</pre></div>
+<h3>Multi processus</h3>
+<p>Apparament on peux faire du multiprocess avec BerkeleyDB, voilà un
+exemple pas très concluant d'après mes tests:</p>
+<div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python3</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">time</span> <span class="kn">import</span> <span class="n">sleep</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span> <span class="nn">hashlib</span> <span class="kn">import</span> <span class="n">md5</span>
+<span class="kn">from</span> <span class="nn">json</span> <span class="kn">import</span> <span class="n">dumps</span> <span class="k">as</span> <span class="n">_dumps</span>
+<span class="kn">from</span> <span class="nn">json</span> <span class="kn">import</span> <span class="n">loads</span> <span class="k">as</span> <span class="n">_loads</span>
+<span class="kn">from</span> <span class="nn">shutil</span> <span class="kn">import</span> <span class="n">rmtree</span>
+<span class="kn">from</span> <span class="nn">bsddb3.db</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">sys</span> <span class="kn">import</span> <span class="n">exit</span>
+<span class="kn">from</span> <span class="nn">multiprocessing</span> <span class="kn">import</span> <span class="n">Process</span>
+
+
+<span class="k">def</span> <span class="nf">dumps</span><span class="p">(</span><span class="n">v</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">_dumps</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">loads</span><span class="p">(</span><span class="n">v</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">_loads</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">))</span>
+
+
+<span class="c1"># reset database</span>
+<span class="n">path</span> <span class="o">=</span> <span class="s1">&#39;/tmp/bsddb-mutliprocess&#39;</span>
+<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="n">rmtree</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+<span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">opendb</span><span class="p">():</span>
+    <span class="c1"># create and open database environment</span>
+    <span class="n">env</span> <span class="o">=</span> <span class="n">DBEnv</span><span class="p">()</span>
+    <span class="n">env</span><span class="o">.</span><span class="n">set_cachesize</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">env</span><span class="o">.</span><span class="n">set_tx_max</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+    <span class="n">flags</span> <span class="o">=</span> <span class="p">(</span><span class="n">DB_INIT_LOG</span> <span class="o">|</span>
+             <span class="n">DB_INIT_LOCK</span> <span class="o">|</span>
+             <span class="n">DB_INIT_TXN</span> <span class="o">|</span>
+             <span class="n">DB_CREATE</span> <span class="o">|</span>
+             <span class="n">DB_INIT_MPOOL</span>
+    <span class="p">)</span>
+    <span class="n">env</span><span class="o">.</span><span class="n">open</span><span class="p">(</span>
+        <span class="n">path</span><span class="p">,</span>
+        <span class="n">flags</span><span class="p">,</span>
+        <span class="mi">0</span>
+    <span class="p">)</span>
+    <span class="c1"># create database</span>
+    <span class="n">txn</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">txn_begin</span><span class="p">(</span><span class="n">flags</span><span class="o">=</span><span class="n">DB_TXN_SNAPSHOT</span><span class="p">)</span>
+    <span class="n">flags</span> <span class="o">=</span> <span class="n">DB_CREATE</span> <span class="o">|</span> <span class="n">DB_MULTIVERSION</span>
+    <span class="n">counter</span> <span class="o">=</span> <span class="n">DB</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+    <span class="n">counter</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">&#39;counter&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">DB_BTREE</span><span class="p">,</span> <span class="n">flags</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">txn</span><span class="o">=</span><span class="n">txn</span><span class="p">)</span>
+    <span class="n">txn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">env</span><span class="p">,</span> <span class="n">counter</span>
+
+
+<span class="k">def</span> <span class="nf">writer</span><span class="p">(</span><span class="n">identifier</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;writer&#39;</span><span class="p">,</span> <span class="n">identifier</span><span class="p">,</span> <span class="s1">&#39;running&#39;</span><span class="p">)</span>
+    <span class="n">env</span><span class="p">,</span> <span class="n">counter</span> <span class="o">=</span> <span class="n">opendb</span><span class="p">()</span>
+    <span class="c1"># open database and update it</span>
+    <span class="n">txn</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">txn_begin</span><span class="p">(</span><span class="n">flags</span><span class="o">=</span><span class="n">DB_TXN_SNAPSHOT</span><span class="p">)</span>
+    <span class="n">counter</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">identifier</span><span class="p">,</span> <span class="n">dumps</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">txn</span><span class="o">=</span><span class="n">txn</span><span class="p">)</span>
+    <span class="n">txn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+        <span class="c1"># print(&#39;writer&#39;, identifier, &#39;@ iteration&#39;, i)</span>
+        <span class="n">txn</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">txn_begin</span><span class="p">(</span><span class="n">flags</span><span class="o">=</span><span class="n">DB_TXN_SNAPSHOT</span><span class="p">)</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">identifier</span><span class="p">,</span> <span class="n">txn</span><span class="o">=</span><span class="n">txn</span><span class="p">)</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">count</span><span class="p">)</span>
+        <span class="n">count</span> <span class="o">+=</span> <span class="n">i</span>
+        <span class="n">counter</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">identifier</span><span class="p">,</span> <span class="n">dumps</span><span class="p">(</span><span class="n">count</span><span class="p">),</span> <span class="n">txn</span><span class="o">=</span><span class="n">txn</span><span class="p">)</span>
+        <span class="n">txn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="n">sleep</span><span class="p">(</span><span class="mf">0.2</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;writer&#39;</span><span class="p">,</span> <span class="n">identifier</span><span class="p">,</span> <span class="s1">&#39;finished&#39;</span><span class="p">)</span>
+    <span class="n">counter</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">env</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">reader</span><span class="p">(</span><span class="n">identifiers</span><span class="p">):</span>
+    <span class="c1"># print(&#39;reader running&#39;)</span>
+    <span class="n">env</span><span class="p">,</span> <span class="n">counter</span> <span class="o">=</span> <span class="n">opendb</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">identifier</span> <span class="ow">in</span> <span class="n">identifiers</span><span class="p">:</span>
+            <span class="n">txn</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">txn_begin</span><span class="p">(</span><span class="n">flags</span><span class="o">=</span><span class="n">DB_TXN_SNAPSHOT</span><span class="p">)</span>
+            <span class="n">count</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">identifier</span><span class="p">,</span> <span class="n">txn</span><span class="o">=</span><span class="n">txn</span><span class="p">)</span>
+            <span class="n">txn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">count</span><span class="p">:</span>
+                <span class="n">count</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">count</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;time:&#39;</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="s1">&#39;read&#39;</span><span class="p">,</span> <span class="n">identifier</span><span class="p">,</span> <span class="n">count</span><span class="p">)</span>
+        <span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;reader finished&#39;</span><span class="p">)</span>
+    <span class="n">counter</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">env</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">uuid</span><span class="p">():</span>
+    <span class="n">now</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+    <span class="n">now</span> <span class="o">=</span> <span class="n">now</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">now</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+    <span class="nb">id</span> <span class="o">=</span> <span class="n">md5</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+    <span class="nb">id</span> <span class="o">=</span> <span class="nb">id</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+    <span class="k">return</span> <span class="nb">id</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;ascii&#39;</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s1">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">jobs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="c1"># spawn (or fork?) two writer</span>
+    <span class="n">identifiers</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">):</span>
+        <span class="n">identifier</span> <span class="o">=</span> <span class="n">uuid</span><span class="p">()</span>
+        <span class="n">identifiers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">identifier</span><span class="p">)</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">Process</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">writer</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">identifier</span><span class="p">,))</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="n">jobs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+    <span class="c1"># spawn (or fork?) one writer</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">Process</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">reader</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">identifiers</span><span class="p">,))</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+    <span class="n">jobs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+    <span class="c1"># check for deadlocks...</span>
+    <span class="n">env</span><span class="p">,</span> <span class="n">counter</span> <span class="o">=</span> <span class="n">opendb</span><span class="p">()</span>
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="n">dead</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">job</span> <span class="ow">in</span> <span class="n">jobs</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">job</span><span class="o">.</span><span class="n">is_alive</span><span class="p">():</span>
+                <span class="n">dead</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">dead</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">lock_detect</span><span class="p">(</span><span class="n">DB_LOCK_DEFAULT</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">r</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;deadlock&#39;</span><span class="p">)</span>
+
+    <span class="c1"># print result</span>
+    <span class="n">txn</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">txn_begin</span><span class="p">(</span><span class="n">flags</span><span class="o">=</span><span class="n">DB_TXN_SNAPSHOT</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">identifier</span> <span class="ow">in</span> <span class="n">identifiers</span><span class="p">:</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">identifier</span><span class="p">,</span> <span class="n">txn</span><span class="o">=</span><span class="n">txn</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">count</span><span class="p">:</span>
+            <span class="n">count</span> <span class="o">=</span> <span class="n">loads</span><span class="p">(</span><span class="n">count</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">identifier</span><span class="p">,</span> <span class="n">count</span><span class="p">)</span>
+    <span class="n">txn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+    <span class="n">counter</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">env</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</pre></div>
+<h3>Astuce des entrées en double (ou composition de clef)</h3>
+<p>Avec le backend Btree il est possible d'avoir plusieurs valeurs pour
+une meme clef. A chaque db.put('super-dupper-high-mojo-key', value)
+une nouvelle entrée est crée dans la base de donnée avec la clef et
+cette valeur. Si la clef existe déjà elle est ajouté à la fin (par
+défaut).</p>
+<p>Le problème c'est que lorsqu'on supprime la clef
+db.delete('super-dupper-high-mojo-key'), la base va supprimer toutes
+les entrées. C'est pas forcement ce que l'on veux. Une façon de
+contourner ce problème est de mettre la valeur dans la clef et utilisé
+une chaine vide comme valeur.</p>
+<p>Par exemple, si on index les propriétés des documents avec leur valeur
+de façon à pourvoir retrouver tous les documents qui ont une valeur
+donnée pour un champs donnée. Il faut utiliser un curseur, le placer à
+l'aide de cursor.range correctement:</p>
+<div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
+
+
+<span class="n">cursor</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+
+<span class="c1"># Keys have the following format:</span>
+<span class="c1">#</span>
+<span class="c1">#  (attribute_name, value, identifier) -&gt; &#39;&#39;</span>
+<span class="c1">#</span>
+<span class="c1"># Where identifier is the identifier of a document</span>
+<span class="c1"># with ``attribute_name`` set to ``value``.</span>
+<span class="c1">#</span>
+<span class="n">KeyIndex</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s1">&#39;KeyIndex&#39;</span><span class="p">,</span> <span class="p">(</span><span class="s1">&#39;attribute&#39;</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">,</span> <span class="s1">&#39;identifier&#39;</span><span class="p">))</span>
+
+
+<span class="k">def</span> <span class="nf">lookup_documents_identifiers</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+    <span class="c1"># The idenfier placeholder is set to the empty</span>
+    <span class="c1"># string so that the cursor will be positioned at the first</span>
+    <span class="c1"># key found for the combination of ``attribute``</span>
+    <span class="c1"># and ``value`` if any, because the empty strings is the</span>
+    <span class="c1"># smallest string value and the index is sorted.</span>
+    <span class="n">lookup</span> <span class="o">=</span> <span class="n">KeyIndex</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+    <span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">set_range</span><span class="p">(</span><span class="n">dumps</span><span class="p">(</span><span class="n">lookup</span><span class="p">))</span>
+
+    <span class="k">while</span> <span class="nb">next</span><span class="p">:</span>
+        <span class="n">key</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="nb">next</span>  <span class="c1"># value is a useless empty string</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="n">KeyIndex</span><span class="p">(</span><span class="o">*</span><span class="n">loads</span><span class="p">(</span><span class="n">key</span><span class="p">))</span>
+        <span class="c1"># check that key is within bound of the lookup</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">attribute</span> <span class="o">==</span> <span class="n">lookup</span><span class="o">.</span><span class="n">attribute</span>
+            <span class="ow">and</span> <span class="n">key</span><span class="o">.</span><span class="n">value</span> <span class="o">==</span> <span class="n">lookup</span><span class="o">.</span><span class="n">value</span><span class="p">):</span>
+            <span class="k">yield</span> <span class="n">key</span><span class="o">.</span><span class="n">identifier</span>
+            <span class="nb">next</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># it can mean that:</span>
+            <span class="c1">#</span>
+            <span class="c1">#   key.attribute != lookup.attribute</span>
+            <span class="c1">#</span>
+            <span class="c1"># which means there is no more document indexed</span>
+            <span class="c1"># with this attribute, no need to iterate over more</span>
+            <span class="c1"># keys</span>
+            <span class="c1">#</span>
+            <span class="c1"># or that:</span>
+            <span class="c1">#</span>
+            <span class="c1">#   key.value != lookup.value</span>
+            <span class="c1">#</span>
+            <span class="c1"># They are some document that have a value for</span>
+            <span class="c1"># ``lookup.attribute`` but ``key.value`` is not</span>
+            <span class="c1"># what we look for and will never be anymore since</span>
+            <span class="c1"># the index is ordered.</span>
+            <span class="c1">#</span>
+            <span class="c1"># In both case, there is no more matching documents.</span>
+            <span class="k">break</span>
+</pre></div>
+<p>En utilisant ce schema il est possible de mettre à jour l'index quand
+la valeur d'un attribut change sans impacter les autres documents
+ayant la meme valeur pour un attribut.</p>
+<p>Y a d'autres chose dans bsddb évidemment. Si le sujet vous interesse
+je vous conseille de lire les documents fournis par Oracle.</p>
+</div>
+	</div>
+        <div id="footer">
+            <p>
+                As always if you like this article, want to share
+                feedback, or tell me what I got it wrong. Please <a href="mailto:amirouche@hyper.dev">get
+                in touch</a>.
+            </p>
+            <p>You might want to subscribe to the blog <a href="http://localhost:8000/feed.xml">feed</a>!</p>
+            <p>Go back to the <a href="https://hyper.dev">homepage</a></p>
+            <p>Amirouche ~ arew</p>
+        </div>
+    </body>
+</html>
